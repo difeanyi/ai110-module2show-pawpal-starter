@@ -10,12 +10,14 @@ classDiagram
         +str category
         +bool completed
         +date last_completed
+        +date due_date
         +int task_id
         +mark_complete(on: date) None
         +update(**changes) None
         +priority_score() int
         +preferred_start() time
         +is_due(on: date) bool
+        +next_occurrence(completed_on: date) Task
     }
 
     class Pet {
@@ -27,6 +29,7 @@ classDiagram
         +add_task(task: Task) Task
         +get_task(task_id: int) Task
         +edit_task(task_id: int, **changes) Task
+        +complete_task(task_id: int, on: date) Task
         +remove_task(task_id: int) None
         +get_tasks() list~Task~
     }
@@ -48,7 +51,9 @@ classDiagram
         +Owner owner
         +time start_time
         +get_tasks(pet_name, completed) list
+        +filter_tasks(pairs, pet_name, completed) list
         +get_due_tasks(on: date) list
+        +detect_conflicts(pairs, on: date) list~str~
         +sort_tasks(pairs) list
         +sort_by_time(pairs) list
         +fits_in_time(task: Task, remaining_minutes: int) bool
@@ -61,6 +66,7 @@ classDiagram
         +int available_minutes
         +list~ScheduledTask~ entries
         +list~SkippedTask~ skipped
+        +list~str~ warnings
         +total_minutes() int
         +add_entry(pet_name, task, start, reason) ScheduledTask
         +add_skipped(pet_name, task, reason) None

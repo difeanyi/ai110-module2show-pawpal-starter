@@ -64,6 +64,18 @@ The relationships are: an Owner has one or more Pets, each Pet has many Tasks, a
 - Describe one tradeoff your scheduler makes.
 - Why is that tradeoff reasonable for this scenario?
 
+**Tradeoff: greedy, priority-first selection instead of finding the "best" combination of tasks.**
+
+When choosing which tasks to include, my scheduler sorts the due tasks by priority (high first, then shortest first) and walks down the list once, keeping each task that still fits in the owner's remaining minutes. It never goes back to reconsider a choice. This means it does not always use the available time as fully as possible. For example, in my demo the owner has 120 minutes. After the high and medium priority tasks are placed, 20 minutes are left, so the 45-minute "Fetch in the yard" task is skipped and those 20 minutes go unused. A smarter algorithm (like the knapsack problem) could search every combination of tasks to fill the time as completely as possible, or to maximise total "priority points".
+
+I think this tradeoff is reasonable for a pet care app because:
+
+- **Important care comes first, every time.** A high-priority task like medication or feeding is never dropped just to fit in two low-priority tasks that happen to use the time better. For pet care, missing meds is much worse than having a few spare minutes.
+- **The result is easy to explain.** Every skipped task gets a simple reason ("needs 45 min but only 20 min left"), which the user can understand and act on, for example by freeing up more time or lowering the task's duration. An optimal search would be harder to explain.
+- **It's fast and simple.** An owner will only have a handful of tasks per day, so the extra complexity of an optimal search would add a lot of code for very little real benefit.
+
+The downside is that the plan can leave small gaps of unused time. If that became a problem, a simple improvement would be a second pass that tries to fill the leftover minutes with any skipped tasks that are short enough.
+
 ---
 
 ## 3. AI Collaboration
