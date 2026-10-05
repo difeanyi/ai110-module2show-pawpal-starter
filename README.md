@@ -67,7 +67,17 @@ pytest --cov
 Sample test output:
 
 ```
-# Paste your pytest output here
+====
+Today's Schedule for Jordan's pets (Mochi, Luna)
+============================================================
+Plan for Monday 05 Oct 2026 (70/90 min used)
+  07:00-07:10  Luna: Clean litter box (10 min, medium) - medium priority
+  07:30-08:00  Mochi: Morning walk (30 min, high) - high priority, preferred 07:30
+  08:15-08:25  Mochi: Breakfast (10 min, high) - high priority, preferred 08:15
+  09:00-09:05  Luna: Thyroid meds (5 min, high) - high priority, preferred 09:00
+  18:00-18:15  Luna: Brush fur (15 min, low) - low priority, preferred 18:00
+Skipped:
+  Mochi: Fetch in the yard - needs 45 min but only 20 min left
 ```
 
 ## 📐 Smarter Scheduling

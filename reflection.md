@@ -35,6 +35,16 @@
 - Briefly describe your initial UML design.
 - What classes did you include, and what responsibilities did you assign to each?
 
+My initial UML design has five classes. I split them so that the data (who the owner is, what pets they have and what needs doing) is kept separate from the logic that decides the schedule and from the finished schedule itself.
+
+- **Owner** holds the constraints for the day: how many minutes the owner has for pet care and their preferences, such as walking the dog in the morning. It also keeps the list of pets the owner is responsible for.
+- **Pet** describes one animal and owns its list of care tasks. It is responsible for adding, editing and removing those tasks.
+- **Task** is one care activity, with a duration, a priority, an optional preferred time and how often it repeats. It can mark itself complete and convert its priority into a number so the scheduler can sort tasks easily.
+- **Scheduler** is the "brain" of the system. It reads the owner's constraints and the pet's tasks, sorts the tasks by priority, checks which ones fit in the available time, and builds the plan. It also explains why each task was included or skipped.
+- **DailyPlan** is the output. It stores which tasks were scheduled and when, which were skipped, the total time used and the reason for each decision, and it can produce a readable summary for the Streamlit UI.
+
+The relationships are: an Owner has one or more Pets, each Pet has many Tasks, and the Scheduler uses an Owner and a Pet to create a DailyPlan. I made Task, Pet, Owner and DailyPlan Python dataclasses because they mainly hold data, and kept Scheduler as a regular class because it mainly holds behavior.
+
 **b. Design changes**
 
 - Did your design change during implementation?

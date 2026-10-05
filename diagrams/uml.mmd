@@ -1,15 +1,21 @@
 classDiagram
     %% Keep this file updated so it matches your final implementation.
 
-    class Owner {
-        +str name
-        +int available_minutes
-        +dict preferences
-        +list~Pet~ pets
-        +add_pet(pet: Pet) None
-        +remove_pet(pet: Pet) None
-        +update_available_time(minutes: int) None
-        +set_preference(key: str, value: str) None
+    class Task {
+        +str description
+        +int duration_minutes
+        +str priority
+        +str time
+        +str frequency
+        +str category
+        +bool completed
+        +date last_completed
+        +int task_id
+        +mark_complete(on: date) None
+        +update(**changes) None
+        +priority_score() int
+        +preferred_start() time
+        +is_due(on: date) bool
     }
 
     class Pet {
@@ -18,50 +24,68 @@ classDiagram
         +str breed
         +int age
         +list~Task~ tasks
-        +add_task(task: Task) None
-        +edit_task(task_id: int, **changes) None
+        +add_task(task: Task) Task
+        +get_task(task_id: int) Task
+        +edit_task(task_id: int, **changes) Task
         +remove_task(task_id: int) None
         +get_tasks() list~Task~
     }
 
-    class Task {
-        +int task_id
-        +str title
-        +str category
-        +int duration_minutes
-        +str priority
-        +str preferred_time
-        +str frequency
-        +bool completed
-        +mark_complete() None
-        +update(**changes) None
-        +priority_score() int
+    class Owner {
+        +str name
+        +int available_minutes
+        +dict preferences
+        +list~Pet~ pets
+        +add_pet(pet: Pet) None
+        +get_pet(name: str) Pet
+        +remove_pet(name: str) None
+        +get_all_tasks() list
+        +update_available_time(minutes: int) None
+        +set_preference(key: str, value: str) None
     }
 
     class Scheduler {
         +Owner owner
-        +Pet pet
         +time start_time
-        +sort_tasks() list~Task~
+        +get_tasks(pet_name, completed) list
+        +get_due_tasks(on: date) list
+        +sort_tasks(pairs) list
+        +sort_by_time(pairs) list
         +fits_in_time(task: Task, remaining_minutes: int) bool
-        +generate_plan() DailyPlan
-        +explain_choice(task: Task) str
+        +mark_task_complete(pet_name: str, task_id: int, on: date) Task
+        +generate_plan(on: date) DailyPlan
     }
 
     class DailyPlan {
         +date date
-        +list scheduled_tasks
-        +list~Task~ skipped_tasks
-        +int total_minutes
-        +dict reasons
-        +add_entry(task: Task, start_time: time, reason: str) None
-        +add_skipped(task: Task, reason: str) None
+        +int available_minutes
+        +list~ScheduledTask~ entries
+        +list~SkippedTask~ skipped
+        +total_minutes() int
+        +add_entry(pet_name, task, start, reason) ScheduledTask
+        +add_skipped(pet_name, task, reason) None
         +summary() str
+    }
+
+    class ScheduledTask {
+        +str pet_name
+        +Task task
+        +time start
+        +time end
+        +str reason
+    }
+
+    class SkippedTask {
+        +str pet_name
+        +Task task
+        +str reason
     }
 
     Owner "1" --> "1..*" Pet : owns
     Pet "1" *-- "0..*" Task : has
-    Scheduler --> Owner : reads constraints from
-    Scheduler --> Pet : reads tasks from
+    Scheduler --> Owner : reads pets, tasks and time budget
     Scheduler ..> DailyPlan : creates
-    DailyPlan o-- "0..*" Task : contains
+    DailyPlan *-- "0..*" ScheduledTask : entries
+    DailyPlan *-- "0..*" SkippedTask : skipped
+    ScheduledTask --> Task
+    SkippedTask --> Task
