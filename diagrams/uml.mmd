@@ -1,15 +1,67 @@
 classDiagram
-    %% Replace the placeholders below with your actual classes, attributes, methods, and relationships.
     %% Keep this file updated so it matches your final implementation.
 
-    class ClassName {
-        +type attribute
-        +method() returnType
+    class Owner {
+        +str name
+        +int available_minutes
+        +dict preferences
+        +list~Pet~ pets
+        +add_pet(pet: Pet) None
+        +remove_pet(pet: Pet) None
+        +update_available_time(minutes: int) None
+        +set_preference(key: str, value: str) None
     }
 
-    class AnotherClass {
-        +type attribute
-        +method() returnType
+    class Pet {
+        +str name
+        +str species
+        +str breed
+        +int age
+        +list~Task~ tasks
+        +add_task(task: Task) None
+        +edit_task(task_id: int, **changes) None
+        +remove_task(task_id: int) None
+        +get_tasks() list~Task~
     }
 
-    ClassName --> AnotherClass : relationship
+    class Task {
+        +int task_id
+        +str title
+        +str category
+        +int duration_minutes
+        +str priority
+        +str preferred_time
+        +str frequency
+        +bool completed
+        +mark_complete() None
+        +update(**changes) None
+        +priority_score() int
+    }
+
+    class Scheduler {
+        +Owner owner
+        +Pet pet
+        +time start_time
+        +sort_tasks() list~Task~
+        +fits_in_time(task: Task, remaining_minutes: int) bool
+        +generate_plan() DailyPlan
+        +explain_choice(task: Task) str
+    }
+
+    class DailyPlan {
+        +date date
+        +list scheduled_tasks
+        +list~Task~ skipped_tasks
+        +int total_minutes
+        +dict reasons
+        +add_entry(task: Task, start_time: time, reason: str) None
+        +add_skipped(task: Task, reason: str) None
+        +summary() str
+    }
+
+    Owner "1" --> "1..*" Pet : owns
+    Pet "1" *-- "0..*" Task : has
+    Scheduler --> Owner : reads constraints from
+    Scheduler --> Pet : reads tasks from
+    Scheduler ..> DailyPlan : creates
+    DailyPlan o-- "0..*" Task : contains
