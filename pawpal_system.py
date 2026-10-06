@@ -20,6 +20,16 @@ def add_minutes(start: time, minutes: int) -> time:
     return (datetime.combine(date.min, start) + timedelta(minutes=minutes)).time()
 
 
+def to_minutes(t: time) -> int:
+    """Return minutes since midnight, so times can be compared without wrapping at 00:00."""
+    return t.hour * 60 + t.minute
+
+
+def from_minutes(minutes: int) -> time:
+    """Return the clock time for a minutes-since-midnight count (wraps past 24:00 for display)."""
+    return add_minutes(time.min, minutes)
+
+
 @dataclass
 class Task:
     """A single pet care activity (walk, feeding, meds, grooming, enrichment)."""
@@ -57,9 +67,9 @@ class Task:
         unknown = set(changes) - valid
         if unknown:
             raise AttributeError(f"Task has no editable field(s): {sorted(unknown)}")
-        for name, value in changes.items():
-            setattr(self, name, value)
-        self.__post_init__()
+        updated = replace(self, **changes)  # validates in __post_init__ before self is touched
+        for f in fields(self):
+            setattr(self, f.name, getattr(updated, f.name))
 
     def priority_score(self) -> int:
         """Convert priority into a number used for sorting (higher = more important)."""
@@ -372,14 +382,14 @@ class Scheduler:
         warnings = []
         for i, (pet_a, a) in enumerate(timed):
             a_start = a.preferred_start()
-            a_end = add_minutes(a_start, a.duration_minutes)
+            a_end = to_minutes(a_start) + a.duration_minutes  # may exceed 24:00; compared as minutes, not wrapped
             for pet_b, b in timed[i + 1:]:
                 b_start = b.preferred_start()
-                if b_start >= a_end:
+                if to_minutes(b_start) >= a_end:
                     break  # sorted by start, so no later task can overlap `a`
                 who = f"same pet ({pet_a.name})" if pet_a is pet_b else f"different pets ({pet_a.name} & {pet_b.name})"
                 warnings.append(
-                    f"{pet_a.name}: {a.description} ({a.time}-{a_end:%H:%M}) overlaps "
+                    f"{pet_a.name}: {a.description} ({a.time}-{from_minutes(a_end):%H:%M}) overlaps "
                     f"{pet_b.name}: {b.description} ({b.time}-{add_minutes(b_start, b.duration_minutes):%H:%M}) "
                     f"- {who}"
                 )
@@ -432,25 +442,26 @@ class Scheduler:
         # 2. Place: timed tasks at their preferred time, untimed tasks fill the gaps.
         timed = self.sort_by_time([pt for pt in chosen if pt[1].time])
         untimed = [pt for pt in chosen if not pt[1].time]  # already in priority order
-        cursor = self.start_time
+        # Track the cursor as minutes since midnight so it keeps increasing past 24:00 instead of wrapping.
+        cursor = to_minutes(self.start_time)
 
         def place_untimed(pet: Pet, task: Task) -> None:
             """Schedule an untimed task at the cursor and advance the cursor."""
             nonlocal cursor
-            plan.add_entry(pet.name, task, cursor, f"{task.priority} priority")
-            cursor = add_minutes(cursor, task.duration_minutes)
+            plan.add_entry(pet.name, task, from_minutes(cursor), f"{task.priority} priority")
+            cursor += task.duration_minutes
 
         for pet, task in timed:
-            preferred = task.preferred_start()
+            preferred = to_minutes(task.preferred_start())
             # Fill the gap before this timed task with untimed tasks that finish in time.
-            while untimed and add_minutes(cursor, untimed[0][1].duration_minutes) <= preferred:
+            while untimed and cursor + untimed[0][1].duration_minutes <= preferred:
                 place_untimed(*untimed.pop(0))
             start = max(cursor, preferred)
             reason = f"{task.priority} priority, preferred {task.time}"
             if start > preferred:
-                reason += f" (moved to {start:%H:%M}: slot taken or before plan start)"
-            plan.add_entry(pet.name, task, start, reason)
-            cursor = add_minutes(start, task.duration_minutes)
+                reason += f" (moved to {from_minutes(start):%H:%M}: slot taken or before plan start)"
+            plan.add_entry(pet.name, task, from_minutes(start), reason)
+            cursor = start + task.duration_minutes
 
         for pet, task in untimed:
             place_untimed(pet, task)

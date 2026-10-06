@@ -1,8 +1,10 @@
 """Tests for the core PawPal+ classes."""
 
 import sys
-from datetime import date
+from datetime import date, time
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -163,3 +165,240 @@ def test_plan_includes_conflict_warning_and_does_not_overlap():
     assert len(plan.warnings) == 1
     first, second = plan.entries
     assert second.start >= first.end
+
+
+# --- Sorting ----------------------------------------------------------------
+
+def descriptions(pairs):
+    return [t.description for _, t in pairs]
+
+
+def test_sort_by_time_orders_real_times_and_puts_untimed_last():
+    owner, mochi, luna = make_owner_with_pets()
+    mochi.add_task(Task("Dinner", time="10:00"))
+    mochi.add_task(Task("Play"))  # no preferred time
+    luna.add_task(Task("Breakfast", time="9:00"))  # normalised to "09:00"
+
+    ordered = Scheduler(owner).sort_by_time(owner.get_all_tasks())
+
+    assert descriptions(ordered) == ["Breakfast", "Dinner", "Play"]
+
+
+def test_sort_tasks_priority_then_shortest_then_original_order():
+    owner, mochi, _ = make_owner_with_pets()
+    mochi.add_task(Task("Low", duration_minutes=5, priority="low"))
+    mochi.add_task(Task("High long", duration_minutes=30, priority="high"))
+    mochi.add_task(Task("High short A", duration_minutes=10, priority="high"))
+    mochi.add_task(Task("High short B", duration_minutes=10, priority="high"))
+
+    ordered = Scheduler(owner).sort_tasks(owner.get_all_tasks())
+
+    assert descriptions(ordered) == ["High short A", "High short B", "High long", "Low"]
+
+
+def test_sorts_handle_empty_input_and_do_not_mutate():
+    owner, mochi, _ = make_owner_with_pets()
+    scheduler = Scheduler(owner)
+    assert scheduler.sort_tasks([]) == []
+    assert scheduler.sort_by_time([]) == []
+
+    mochi.add_task(Task("Late", priority="low", time="18:00"))
+    mochi.add_task(Task("Early", priority="high", time="07:00"))
+    pairs = owner.get_all_tasks()
+    original = list(pairs)
+
+    scheduler.sort_tasks(pairs)
+    scheduler.sort_by_time(pairs)
+
+    assert pairs == original
+
+
+# --- Recurrence -------------------------------------------------------------
+
+def test_late_completion_counts_from_completion_day():
+    pet = Pet(name="Mochi", species="dog")
+    walk = pet.add_task(Task("Walk", frequency="daily", due_date=date(2026, 10, 5)))
+
+    next_walk = pet.complete_task(walk.task_id, on=date(2026, 10, 8))
+
+    assert next_walk.due_date == date(2026, 10, 9)
+
+
+def test_early_completion_of_weekly_task_counts_from_completion_day():
+    # Documents current behaviour: completing before the due date is allowed
+    # and the next occurrence counts from the day it was actually done.
+    pet = Pet(name="Luna", species="cat")
+    brush = pet.add_task(Task("Brush fur", frequency="weekly", due_date=date(2026, 10, 12)))
+
+    next_brush = pet.complete_task(brush.task_id, on=date(2026, 10, 6))
+
+    assert next_brush.due_date == date(2026, 10, 13)
+
+
+def test_missed_days_do_not_pile_up():
+    owner, mochi, _ = make_owner_with_pets()
+    mochi.add_task(Task("Walk", frequency="daily", due_date=date(2026, 10, 5)))
+
+    due = Scheduler(owner).get_due_tasks(date(2026, 10, 8))
+
+    assert descriptions(due) == ["Walk"]
+
+
+def test_completing_the_next_occurrence_chains_correctly():
+    pet = Pet(name="Mochi", species="dog")
+    first = pet.add_task(Task("Walk", frequency="daily"))
+
+    second = pet.complete_task(first.task_id, on=date(2026, 10, 5))
+    third = pet.complete_task(second.task_id, on=date(2026, 10, 6))
+
+    assert len({first.task_id, second.task_id, third.task_id}) == 3
+    assert third.due_date == date(2026, 10, 7)
+    assert [t.completed for t in pet.get_tasks()] == [True, True, False]
+
+
+def test_switching_frequency_to_once_stops_recurrence():
+    pet = Pet(name="Mochi", species="dog")
+    walk = pet.add_task(Task("Walk", frequency="daily"))
+    pet.edit_task(walk.task_id, frequency="once")
+
+    assert pet.complete_task(walk.task_id, on=date(2026, 10, 5)) is None
+    assert len(pet.get_tasks()) == 1
+
+
+# --- Planning: budget and placement -----------------------------------------
+
+def test_task_exactly_filling_remaining_time_is_scheduled():
+    owner, mochi, _ = make_owner_with_pets()
+    owner.update_available_time(40)
+    mochi.add_task(Task("Walk", duration_minutes=30, priority="high"))
+    mochi.add_task(Task("Brush", duration_minutes=10, priority="low"))
+
+    plan = Scheduler(owner).generate_plan(date(2026, 10, 5))
+
+    assert [e.task.description for e in plan.entries] == ["Walk", "Brush"]
+    assert plan.skipped == []
+    assert plan.total_minutes == 40
+
+
+def test_zero_available_minutes_skips_everything():
+    owner, mochi, _ = make_owner_with_pets()
+    owner.update_available_time(0)
+    mochi.add_task(Task("Walk", duration_minutes=30))
+
+    plan = Scheduler(owner).generate_plan(date(2026, 10, 5))
+
+    assert plan.entries == []
+    assert len(plan.skipped) == 1
+    assert "Nothing scheduled." in plan.summary()
+
+
+def test_greedy_skips_long_high_priority_but_keeps_shorter_low_priority():
+    owner, mochi, _ = make_owner_with_pets()
+    owner.update_available_time(20)
+    mochi.add_task(Task("Long hike", duration_minutes=60, priority="high"))
+    mochi.add_task(Task("Brush", duration_minutes=15, priority="low"))
+
+    plan = Scheduler(owner).generate_plan(date(2026, 10, 5))
+
+    assert [e.task.description for e in plan.entries] == ["Brush"]
+    assert plan.skipped[0].task.description == "Long hike"
+    assert "needs 60 min but only 20 min left" in plan.skipped[0].reason
+
+
+def test_preferred_time_before_plan_start_is_moved_to_start():
+    owner, mochi, _ = make_owner_with_pets()
+    mochi.add_task(Task("Early meds", duration_minutes=5, time="07:00"))
+
+    plan = Scheduler(owner, start_time=time(8, 0)).generate_plan(date(2026, 10, 5))
+
+    entry = plan.entries[0]
+    assert entry.start == time(8, 0)
+    assert "moved to 08:00" in entry.reason
+
+
+def test_untimed_tasks_fill_gaps_only_when_they_fit():
+    owner, mochi, _ = make_owner_with_pets()
+    mochi.add_task(Task("Feed", duration_minutes=20, priority="high"))  # fits 08:00-08:20
+    mochi.add_task(Task("Groom", duration_minutes=30, priority="medium"))  # would overrun 08:30
+    mochi.add_task(Task("Vet call", duration_minutes=10, priority="high", time="08:30"))
+
+    plan = Scheduler(owner).generate_plan(date(2026, 10, 5))
+
+    assert [(e.task.description, e.start) for e in plan.entries] == [
+        ("Feed", time(8, 0)),
+        ("Vet call", time(8, 30)),
+        ("Groom", time(8, 40)),
+    ]
+
+
+def test_one_long_task_overlapping_two_short_ones_gives_two_warnings():
+    owner, mochi, luna = make_owner_with_pets()
+    mochi.add_task(Task("Walk", duration_minutes=60, time="08:00"))
+    luna.add_task(Task("Breakfast", duration_minutes=10, time="08:10"))
+    luna.add_task(Task("Meds", duration_minutes=5, time="08:30"))
+
+    warnings = Scheduler(owner).detect_conflicts(on=date(2026, 10, 5))
+
+    assert len(warnings) == 2
+    assert all(w.startswith("Mochi: Walk") for w in warnings)
+
+
+# --- Regressions: midnight wrap and update validation ---------------------
+
+def test_conflict_detected_across_midnight():
+    owner, mochi, _ = make_owner_with_pets()
+    mochi.add_task(Task("Late walk", duration_minutes=30, time="23:50"))
+    mochi.add_task(Task("Meds", duration_minutes=5, time="23:55"))
+
+    assert len(Scheduler(owner).detect_conflicts(on=date(2026, 10, 5))) == 1
+
+
+def test_plan_does_not_overlap_across_midnight():
+    owner, mochi, _ = make_owner_with_pets()
+    mochi.add_task(Task("Late walk", duration_minutes=30, priority="high", time="23:50"))
+    mochi.add_task(Task("Meds", duration_minutes=5, priority="high", time="23:55"))
+
+    plan = Scheduler(owner).generate_plan(date(2026, 10, 5))
+
+    walk, meds = plan.entries
+    assert (walk.start, walk.end) == (time(23, 50), time(0, 20))
+    assert meds.start == time(0, 20)  # pushed after the walk, not slotted inside it
+    assert "moved to 00:20" in meds.reason
+
+
+def test_failed_update_leaves_task_unchanged():
+    task = Task("Walk", priority="high")
+
+    with pytest.raises(ValueError):
+        task.update(priority="urgent")
+
+    assert task.priority == "high"
+
+
+# --- Lookups and validation -------------------------------------------------
+
+def test_unknown_ids_and_names_raise_key_error():
+    owner, mochi, _ = make_owner_with_pets()
+    with pytest.raises(KeyError):
+        mochi.complete_task(999)
+    with pytest.raises(KeyError):
+        mochi.get_task(999)
+    with pytest.raises(KeyError):
+        owner.get_pet("Nobody")
+
+
+def test_duplicate_pet_name_rejected():
+    owner, _, _ = make_owner_with_pets()
+    with pytest.raises(ValueError):
+        owner.add_pet(Pet(name="Mochi", species="dog"))
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"priority": "urgent"},
+    {"frequency": "monthly"},
+    {"duration_minutes": 0},
+    {"time": "25:00"},
+])
+def test_invalid_task_fields_rejected(kwargs):
+    with pytest.raises(ValueError):
+        Task("Bad", **kwargs)

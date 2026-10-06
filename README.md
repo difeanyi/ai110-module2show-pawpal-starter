@@ -56,29 +56,38 @@ Paste a sample of your app's CLI or Streamlit output here so a reader can see wh
 
 ## 🧪 Testing PawPal+
 
+Run the full test suite from the project root:
+
 ```bash
-# Run the full test suite:
-pytest
-
-# Run with coverage:
-pytest --cov
+python -m pytest
 ```
 
-Sample test output:
+The 37 tests in [`tests/test_pawpal.py`](tests/test_pawpal.py) cover:
+
+- **Sorting**: chronological order by preferred time (`"9:00"` before `"10:00"`, untimed tasks last); priority then shortest duration, with stable ties; empty input; inputs never mutated.
+- **Filtering**: by pet name, completion status, and both combined.
+- **Recurring tasks**: daily/weekly tasks create the next occurrence (1 or 7 days after completion, even when done late or early); `"once"` tasks don't recur; completing twice doesn't duplicate; missed days don't pile up; next occurrences stay out of the plan until due.
+- **Conflict detection**: same-pet and cross-pet overlaps, one task overlapping several, back-to-back tasks and untimed tasks not flagged, and overlaps that run past midnight.
+- **Plan generation**: exact-fit time budget, zero minutes available, greedy skipping with reasons, tasks moved when their slot is taken or before the plan start, untimed tasks filling gaps only when they fit, and no overlapping entries (including across midnight).
+- **Validation**: invalid priority, frequency, duration or time rejected; failed edits leave a task unchanged; unknown ids/pet names raise `KeyError`; duplicate pet names rejected.
+
+Successful test run:
 
 ```
-====
-Today's Schedule for Jordan's pets (Mochi, Luna)
-============================================================
-Plan for Monday 05 Oct 2026 (70/90 min used)
-  07:00-07:10  Luna: Clean litter box (10 min, medium) - medium priority
-  07:30-08:00  Mochi: Morning walk (30 min, high) - high priority, preferred 07:30
-  08:15-08:25  Mochi: Breakfast (10 min, high) - high priority, preferred 08:15
-  09:00-09:05  Luna: Thyroid meds (5 min, high) - high priority, preferred 09:00
-  18:00-18:15  Luna: Brush fur (15 min, low) - low priority, preferred 18:00
-Skipped:
-  Mochi: Fetch in the yard - needs 45 min but only 20 min left
+============================= test session starts ==============================
+platform darwin -- Python 3.13.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/davidifeanyi/Projects/PawPal/ai110-module2show-pawpal-starter
+plugins: anyio-4.15.1
+collected 37 items
+
+tests/test_pawpal.py .....................................               [100%]
+
+============================== 37 passed in 0.15s ==============================
 ```
+
+**Confidence Level: ★★★★☆ (4/5)**
+
+All 37 tests pass, covering the core scheduling logic and its edge cases, and writing them uncovered (and fixed) two real bugs: overlaps past midnight were missed, and a rejected edit left invalid values on a task. It isn't 5 stars because the tests exercise `pawpal_system.py` only. The Streamlit UI in `app.py` is untested, and the greedy planner is a deliberate simplification that can leave minutes unused rather than finding the best possible fit.
 
 ## 📐 Smarter Scheduling
 
