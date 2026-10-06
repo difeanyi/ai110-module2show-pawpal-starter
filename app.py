@@ -135,7 +135,7 @@ else:
                 ),
             )
         with col2:
-            if st.button("Mark complete", use_container_width=True):
+            if st.button("Mark complete", width="stretch"):
                 next_task = scheduler.mark_task_complete(*choice, on=dt.date.today())
                 st.session_state.flash = (
                     f"Done! Next '{next_task.description}' is due {next_task.due_date:%a %d %b}."
@@ -145,14 +145,42 @@ else:
     if "flash" in st.session_state:
         st.success(st.session_state.pop("flash"))
 
-    rows = [{"Pet": p.name, "ID": t.task_id, "Task": t.description, "Minutes": t.duration_minutes,
-             "Priority": t.priority, "Time": t.time or "-", "Frequency": t.frequency,
+    # --- Task list view -> Scheduler.get_due_tasks / filter_tasks / sort_by_time / sort_tasks ---
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        pet_filter = st.selectbox("Show pet", ["All pets"] + [p.name for p in owner.pets])
+    with col2:
+        status_filter = st.selectbox("Show", ["Due today", "Open", "Completed", "All"])
+    with col3:
+        sort_by = st.selectbox("Sort by", ["Time", "Priority"])
+
+    if status_filter == "Due today":
+        pairs = scheduler.get_due_tasks(dt.date.today())
+    else:
+        pairs = scheduler.get_tasks(completed={"Open": False, "Completed": True, "All": None}[status_filter])
+    pairs = scheduler.filter_tasks(pairs, pet_name=None if pet_filter == "All pets" else pet_filter)
+    pairs = scheduler.sort_by_time(pairs) if sort_by == "Time" else scheduler.sort_tasks(pairs)
+
+    rows = [{"Time": t.time or "-", "Pet": p.name, "Task": t.description, "Minutes": t.duration_minutes,
+             "Priority": t.priority, "Frequency": t.frequency,
              "Due": f"{t.due_date:%a %d %b}" if t.due_date else "now",
-             "Done": "yes" if t.completed else ""} for p, t in scheduler.get_tasks()]
+             "Done": "✅" if t.completed else ""} for p, t in pairs]
     if rows:
-        st.table(rows)
+        st.dataframe(rows, hide_index=True, width="stretch")
+    elif scheduler.get_tasks():
+        st.info("No tasks match these filters.")
     else:
         st.info("No tasks yet. Add one above.")
+
+    # --- Live conflict check -> Scheduler.detect_conflicts ---
+    conflicts = scheduler.detect_conflicts(on=dt.date.today())
+    if conflicts:
+        st.warning(f"**{len(conflicts)} time conflict(s) today.** The schedule will move the later "
+                   "task in each pair, or you can change a task's time.", icon="⚠️")
+        for c in conflicts:
+            st.caption(f"• {c}")
+    elif scheduler.get_due_tasks(dt.date.today()):
+        st.success("No time conflicts among today's tasks.", icon="✅")
 
 st.divider()
 
@@ -163,14 +191,22 @@ start = st.time_input("Day starts at", value=dt.time(8, 0), step=900)
 
 if st.button("Generate schedule"):
     plan = Scheduler(owner, start_time=start).generate_plan(dt.date.today())
-    st.metric("Minutes scheduled", f"{plan.total_minutes} / {plan.available_minutes}")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Minutes scheduled", f"{plan.total_minutes} / {plan.available_minutes}")
+    col2.metric("Tasks scheduled", len(plan.entries))
+    col3.metric("Skipped", len(plan.skipped))
+
     for w in plan.warnings:
         st.warning(f"Time conflict: {w}", icon="⚠️")
     if plan.entries:
-        st.table([{"Time": f"{e.start:%H:%M}-{e.end:%H:%M}", "Pet": e.pet_name,
-                   "Task": e.task.description, "Priority": e.task.priority, "Why": e.reason}
-                  for e in plan.entries])
+        st.dataframe([{"Time": f"{e.start:%H:%M}-{e.end:%H:%M}", "Pet": e.pet_name,
+                       "Task": e.task.description, "Priority": e.task.priority, "Why": e.reason}
+                      for e in plan.entries], hide_index=True, width="stretch")
     else:
         st.info("Nothing due today. Add tasks, or check back when recurring tasks come due.")
-    for s in plan.skipped:
-        st.warning(f"Skipped {s.pet_name}: {s.task.description} ({s.reason})")
+    if plan.skipped:
+        st.markdown("**Skipped (not enough time)**")
+        st.dataframe([{"Pet": s.pet_name, "Task": s.task.description, "Priority": s.task.priority,
+                       "Why": s.reason} for s in plan.skipped], hide_index=True, width="stretch")
+    with st.expander("Plain-text summary"):
+        st.code(plan.summary(), language=None)
